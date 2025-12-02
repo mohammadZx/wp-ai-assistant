@@ -52,6 +52,7 @@ class WPAI_Plugin {
         require_once WPAI_PLUGIN_DIR . 'includes/class-wpai-content-generator.php';
         require_once WPAI_PLUGIN_DIR . 'includes/class-wpai-file-handler.php';
         require_once WPAI_PLUGIN_DIR . 'includes/class-wpai-topic-manager.php';
+        require_once WPAI_PLUGIN_DIR . 'includes/class-wpai-function-handler.php';
     }
     
     /**
@@ -110,6 +111,8 @@ class WPAI_Plugin {
                 'error' => __('An error occurred. Please try again.', 'wpai-assistant'),
                 'confirmClear' => __('Are you sure you want to clear this chat?', 'wpai-assistant'),
                 'thinking' => __('Thinking...', 'wpai-assistant'),
+                'functionCalls' => __('Actions taken:', 'wpai-assistant'),
+                'noResults' => __('No posts found', 'wpai-assistant'),
             )
         ));
     }

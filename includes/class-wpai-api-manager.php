@@ -114,16 +114,16 @@ class WPAI_API_Manager {
     /**
      * Send request to AI API
      */
-    public function send_request($messages, $custom_settings = array()) {
+    public function send_request($messages, $custom_settings = array(), $functions = null) {
         $settings = wp_parse_args($custom_settings, $this->settings);
         
         switch ($this->provider) {
             case 'openai':
-                return $this->send_openai_request($messages, $settings);
+                return $this->send_openai_request($messages, $settings, $functions);
             case 'google':
-                return $this->send_google_request($messages, $settings);
+                return $this->send_google_request($messages, $settings, $functions);
             case 'custom':
-                return $this->send_custom_request($messages, $settings);
+                return $this->send_custom_request($messages, $settings, $functions);
             default:
                 return new WP_Error('invalid_provider', __('Invalid API provider', 'wpai-assistant'));
         }
@@ -132,7 +132,7 @@ class WPAI_API_Manager {
     /**
      * Send OpenAI request
      */
-    private function send_openai_request($messages, $settings) {
+    private function send_openai_request($messages, $settings, $functions = null) {
         $endpoint = $this->mirror_link ?: 'https://api.openai.com/v1/chat/completions';
         
         $body = array(
@@ -154,13 +154,19 @@ class WPAI_API_Manager {
             $body['presence_penalty'] = $settings['presence_penalty'];
         }
         
+        // Add functions if provided
+        if (!empty($functions) && is_array($functions)) {
+            $body['functions'] = $functions;
+            $body['function_call'] = 'auto';
+        }
+        
         $response = wp_remote_post($endpoint, array(
             'headers' => array(
                 'Authorization' => 'Bearer ' . $this->api_key,
                 'Content-Type' => 'application/json',
             ),
             'body' => json_encode($body),
-            'timeout' => 60,
+            'timeout' => 120, // Increased timeout for function calling
         ));
         
         // Store response for debugging
@@ -195,8 +201,19 @@ class WPAI_API_Manager {
             return new WP_Error('api_error', $error_message);
         }
         
+        // Check for function call
+        if (isset($data['choices'][0]['message']['function_call'])) {
+            return array(
+                'type' => 'function_call',
+                'function_call' => $data['choices'][0]['message']['function_call'],
+            );
+        }
+        
         if (isset($data['choices'][0]['message']['content'])) {
-            return $data['choices'][0]['message']['content'];
+            return array(
+                'type' => 'content',
+                'content' => $data['choices'][0]['message']['content'],
+            );
         }
         
         return new WP_Error('invalid_response', __('Invalid response from API', 'wpai-assistant'));
@@ -205,7 +222,7 @@ class WPAI_API_Manager {
     /**
      * Send Google request
      */
-    private function send_google_request($messages, $settings) {
+    private function send_google_request($messages, $settings, $functions = null) {
         // Ensure API key is not empty
         if (empty($this->api_key)) {
             return new WP_Error('missing_api_key', __('API key is required for Google API', 'wpai-assistant'));
@@ -245,13 +262,34 @@ class WPAI_API_Manager {
                 continue; // Skip adding to contents
             }
             
-            // Map roles: assistant -> model, user -> user
-            $api_role = ($role === 'assistant') ? 'model' : 'user';
+            // Map roles: assistant -> model, user -> user, function -> function
+            $api_role = ($role === 'assistant') ? 'model' : (($role === 'function') ? 'function' : 'user');
             
             // Build parts array
             $parts = array();
             if (isset($msg['content'])) {
                 $parts[] = array('text' => $msg['content']);
+            }
+            
+            // Handle function call (for Google, this is in the message)
+            if (isset($msg['function_call'])) {
+                $function_call = $msg['function_call'];
+                $parts[] = array(
+                    'functionCall' => array(
+                        'name' => $function_call['name'] ?? '',
+                        'args' => isset($function_call['arguments']) ? json_decode($function_call['arguments'], true) : array(),
+                    ),
+                );
+            }
+            
+            // Handle function response
+            if ($role === 'function' && isset($msg['name'])) {
+                $parts[] = array(
+                    'functionResponse' => array(
+                        'name' => $msg['name'],
+                        'response' => isset($msg['content']) ? json_decode($msg['content'], true) : array(),
+                    ),
+                );
             }
             
             // Add to contents if we have parts
@@ -276,6 +314,23 @@ class WPAI_API_Manager {
         // Add system_instruction if exists (like Laravel code)
         if ($system_instruction !== null) {
             $body['system_instruction'] = $system_instruction;
+        }
+        
+        // Add function calling for Google (tools)
+        if (!empty($functions) && is_array($functions)) {
+            $tools = array();
+            foreach ($functions as $func) {
+                $tools[] = array(
+                    'functionDeclarations' => array(
+                        array(
+                            'name' => $func['name'],
+                            'description' => $func['description'] ?? '',
+                            'parameters' => $func['parameters'] ?? array(),
+                        ),
+                    ),
+                );
+            }
+            $body['tools'] = $tools;
         }
         
         // Build URL with API key (similar to Laravel: ?key={apiKey})
@@ -328,8 +383,36 @@ class WPAI_API_Manager {
             return new WP_Error('api_error', $error_message);
         }
         
-        if (isset($data['candidates'][0]['content']['parts'][0]['text'])) {
-            return $data['candidates'][0]['content']['parts'][0]['text'];
+        // Check for function call (Google uses functionCall in parts)
+        if (isset($data['candidates'][0]['content']['parts'])) {
+            foreach ($data['candidates'][0]['content']['parts'] as $part) {
+                if (isset($part['functionCall'])) {
+                    $function_call = $part['functionCall'];
+                    return array(
+                        'type' => 'function_call',
+                        'function_call' => array(
+                            'name' => $function_call['name'] ?? '',
+                            'arguments' => isset($function_call['args']) ? json_encode($function_call['args']) : '{}',
+                        ),
+                    );
+                }
+            }
+        }
+        
+        // Check for text content in parts
+        if (isset($data['candidates'][0]['content']['parts'])) {
+            $text_content = '';
+            foreach ($data['candidates'][0]['content']['parts'] as $part) {
+                if (isset($part['text'])) {
+                    $text_content .= $part['text'];
+                }
+            }
+            if (!empty($text_content)) {
+                return array(
+                    'type' => 'content',
+                    'content' => $text_content,
+                );
+            }
         }
         
         return new WP_Error('invalid_response', __('Invalid response from API', 'wpai-assistant'));
@@ -338,7 +421,7 @@ class WPAI_API_Manager {
     /**
      * Send custom API request
      */
-    private function send_custom_request($messages, $settings) {
+    private function send_custom_request($messages, $settings, $functions = null) {
         $endpoint = $this->mirror_link;
         
         if (empty($endpoint)) {
@@ -404,17 +487,34 @@ class WPAI_API_Manager {
             return new WP_Error('invalid_response', __('Invalid response format from custom API', 'wpai-assistant'));
         }
         
+        // Check for function call
+        if (isset($data['choices'][0]['message']['function_call'])) {
+            return array(
+                'type' => 'function_call',
+                'function_call' => $data['choices'][0]['message']['function_call'],
+            );
+        }
+        
         // Try to extract content from common response formats
         if (isset($data['choices'][0]['message']['content'])) {
-            return $data['choices'][0]['message']['content'];
+            return array(
+                'type' => 'content',
+                'content' => $data['choices'][0]['message']['content'],
+            );
         }
         
         if (isset($data['content'])) {
-            return $data['content'];
+            return array(
+                'type' => 'content',
+                'content' => $data['content'],
+            );
         }
         
         if (isset($data['text'])) {
-            return $data['text'];
+            return array(
+                'type' => 'content',
+                'content' => $data['text'],
+            );
         }
         
         return new WP_Error('invalid_response', __('Invalid response from custom API', 'wpai-assistant'));

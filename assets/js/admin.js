@@ -10,9 +10,12 @@
         uploadedFiles: [],
         currentTopic: null,
         thinkingDegree: 50,
+        selectedPostId: null,
+        searchTimeout: null,
 
         init: function() {
             this.initChat();
+            this.initPostSelector();
             this.initThinkingDegree();
             this.initFileUpload();
             this.initSettings();
@@ -77,7 +80,8 @@
             const settings = this.getThinkingDegreeSettings();
             const context = {
                 topic_id: this.currentTopic,
-                uploaded_files: this.uploadedFiles
+                uploaded_files: this.uploadedFiles,
+                selected_post_id: this.selectedPostId
             };
 
             // Send AJAX request
@@ -95,7 +99,23 @@
                 success: function(response) {
                     if (response.success) {
                         // Update loading message
-                        $('#' + loadingId).removeClass('loading').html(response.data.response);
+                        let responseHtml = WPAI.formatMessage(response.data.response);
+                        
+                        // Show function calls if any
+                        if (response.data.function_calls && response.data.function_calls.length > 0) {
+                            responseHtml += '<div class="wpai-function-calls">';
+                            responseHtml += '<strong>' + (wpaiData.strings.functionCalls || 'Actions taken:') + '</strong><ul>';
+                            response.data.function_calls.forEach(function(call) {
+                                responseHtml += '<li>' + call.name;
+                                if (call.result && call.result.post_id) {
+                                    responseHtml += ' - <a href="' + (call.result.edit_link || '#') + '" target="_blank">Post #' + call.result.post_id + '</a>';
+                                }
+                                responseHtml += '</li>';
+                            });
+                            responseHtml += '</ul></div>';
+                        }
+                        
+                        $('#' + loadingId).removeClass('loading').html(responseHtml);
                         WPAI.sessionId = response.data.session_id;
                     } else {
                         $('#' + loadingId).removeClass('loading').html('<span style="color: #d63638;">Error: ' + response.data.message + '</span>');
@@ -425,6 +445,103 @@
                 $('.tab-content').removeClass('active');
                 $(target).addClass('active');
             });
+        },
+
+        // Post Selector
+        initPostSelector: function() {
+            const searchInput = $('#wpai-post-search');
+            const resultsContainer = $('#wpai-post-search-results');
+            const selectedPostContainer = $('#wpai-selected-post');
+            
+            // Search posts on input
+            searchInput.on('input', function() {
+                const query = $(this).val().trim();
+                
+                clearTimeout(WPAI.searchTimeout);
+                
+                if (query.length < 2) {
+                    resultsContainer.empty();
+                    return;
+                }
+                
+                WPAI.searchTimeout = setTimeout(function() {
+                    WPAI.searchPosts(query);
+                }, 300);
+            });
+            
+            // Clear selected post
+            $('#wpai-clear-selected-post').on('click', function(e) {
+                e.preventDefault();
+                WPAI.selectedPostId = null;
+                selectedPostContainer.hide();
+                searchInput.val('');
+            });
+            
+            // Close results when clicking outside
+            $(document).on('click', function(e) {
+                if (!$(e.target).closest('.wpai-post-selector').length) {
+                    resultsContainer.empty();
+                }
+            });
+        },
+        
+        searchPosts: function(query) {
+            const resultsContainer = $('#wpai-post-search-results');
+            
+            $.ajax({
+                url: wpaiData.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'wpai_search_posts',
+                    nonce: wpaiData.nonce,
+                    query: query,
+                    post_type: 'any',
+                    limit: 10
+                },
+                success: function(response) {
+                    if (response.success && response.data.posts) {
+                        let html = '<ul class="wpai-post-results">';
+                        response.data.posts.forEach(function(post) {
+                            html += '<li class="wpai-post-result-item" data-post-id="' + post.id + '">';
+                            html += '<strong>' + escapeHtml(post.title) + '</strong>';
+                            html += '<span class="wpai-post-badge wpai-post-badge-' + post.type + '">' + post.type + '</span>';
+                            if (post.editor_type === 'elementor') {
+                                html += '<span class="wpai-post-badge wpai-post-badge-elementor">Elementor</span>';
+                            }
+                            html += '</li>';
+                        });
+                        html += '</ul>';
+                        resultsContainer.html(html);
+                        
+                        // Handle post selection
+                        $('.wpai-post-result-item').on('click', function() {
+                            const postId = $(this).data('post-id');
+                            const post = response.data.posts.find(p => p.id == postId);
+                            if (post) {
+                                WPAI.selectPost(post);
+                            }
+                        });
+                    } else {
+                        resultsContainer.html('<div class="wpai-no-results">' + (wpaiData.strings.noResults || 'No posts found') + '</div>');
+                    }
+                },
+                error: function() {
+                    resultsContainer.html('<div class="wpai-error">' + (wpaiData.strings.error || 'Error occurred') + '</div>');
+                }
+            });
+        },
+        
+        selectPost: function(post) {
+            this.selectedPostId = post.id;
+            $('#wpai-selected-post-title').text(post.title);
+            $('#wpai-selected-post-type').text(post.type).removeClass().addClass('wpai-post-badge wpai-post-badge-' + post.type);
+            if (post.editor_type === 'elementor') {
+                $('#wpai-selected-post-type').after('<span class="wpai-post-badge wpai-post-badge-elementor">Elementor</span>');
+            }
+            $('#wpai-selected-post-edit').attr('href', post.edit_link);
+            $('#wpai-selected-post').show();
+            $('#wpai-post-search-results').empty();
+            $('#wpai-post-search').val('');
         },
 
         // Topics

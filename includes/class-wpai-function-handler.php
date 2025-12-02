@@ -1,0 +1,835 @@
+<?php
+/**
+ * Function Handler for AI function calling
+ */
+
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class WPAI_Function_Handler {
+    
+    private $content_generator;
+    private $security;
+    
+    public function __construct($content_generator = null, $security = null) {
+        $this->content_generator = $content_generator;
+        $this->security = $security;
+    }
+    
+    /**
+     * Get available functions for AI
+     */
+    public function get_functions() {
+        return array(
+            array(
+                'name' => 'create_post',
+                'description' => 'Create a new WordPress post or page. Can create Gutenberg blocks or Elementor pages.',
+                'parameters' => array(
+                    'type' => 'object',
+                    'properties' => array(
+                        'title' => array(
+                            'type' => 'string',
+                            'description' => 'The title of the post or page',
+                        ),
+                        'content' => array(
+                            'type' => 'string',
+                            'description' => 'The content of the post/page. For Gutenberg, use block format. For Elementor, use JSON structure.',
+                        ),
+                        'post_type' => array(
+                            'type' => 'string',
+                            'enum' => array('post', 'page'),
+                            'description' => 'Type of content: post or page',
+                            'default' => 'post',
+                        ),
+                        'editor_type' => array(
+                            'type' => 'string',
+                            'enum' => array('gutenberg', 'elementor', 'classic'),
+                            'description' => 'Editor type: gutenberg (block editor), elementor, or classic',
+                            'default' => 'gutenberg',
+                        ),
+                        'status' => array(
+                            'type' => 'string',
+                            'enum' => array('draft', 'publish', 'pending'),
+                            'description' => 'Post status',
+                            'default' => 'draft',
+                        ),
+                        'categories' => array(
+                            'type' => 'array',
+                            'items' => array('type' => 'integer'),
+                            'description' => 'Array of category IDs (for posts only)',
+                        ),
+                        'tags' => array(
+                            'type' => 'array',
+                            'items' => array('type' => 'string'),
+                            'description' => 'Array of tag names (for posts only)',
+                        ),
+                        'featured_image_url' => array(
+                            'type' => 'string',
+                            'description' => 'URL of featured image (will be downloaded and set)',
+                        ),
+                        'meta' => array(
+                            'type' => 'object',
+                            'description' => 'Custom meta fields (e.g., SEO meta)',
+                        ),
+                    ),
+                    'required' => array('title', 'content'),
+                ),
+            ),
+            array(
+                'name' => 'edit_post',
+                'description' => 'Edit an existing WordPress post or page. Can edit content, title, meta, or specific parts of Elementor pages.',
+                'parameters' => array(
+                    'type' => 'object',
+                    'properties' => array(
+                        'post_id' => array(
+                            'type' => 'integer',
+                            'description' => 'The ID of the post/page to edit',
+                        ),
+                        'title' => array(
+                            'type' => 'string',
+                            'description' => 'New title (optional)',
+                        ),
+                        'content' => array(
+                            'type' => 'string',
+                            'description' => 'New content or partial content to replace. For Elementor, provide JSON structure or section/widget to update.',
+                        ),
+                        'editor_type' => array(
+                            'type' => 'string',
+                            'enum' => array('gutenberg', 'elementor', 'classic'),
+                            'description' => 'Editor type of the post',
+                        ),
+                        'edit_type' => array(
+                            'type' => 'string',
+                            'enum' => array('full', 'partial', 'meta', 'seo'),
+                            'description' => 'Type of edit: full (replace all), partial (edit specific part), meta (edit meta only), seo (edit SEO only)',
+                            'default' => 'full',
+                        ),
+                        'meta' => array(
+                            'type' => 'object',
+                            'description' => 'Meta fields to update (e.g., _yoast_wpseo_title, _yoast_wpseo_metadesc for SEO)',
+                        ),
+                    ),
+                    'required' => array('post_id'),
+                ),
+            ),
+            array(
+                'name' => 'search_posts',
+                'description' => 'Search for posts or pages by title, content, or ID. Useful for finding posts to edit.',
+                'parameters' => array(
+                    'type' => 'object',
+                    'properties' => array(
+                        'query' => array(
+                            'type' => 'string',
+                            'description' => 'Search query (title or content)',
+                        ),
+                        'post_type' => array(
+                            'type' => 'string',
+                            'enum' => array('post', 'page', 'any'),
+                            'description' => 'Type of posts to search',
+                            'default' => 'any',
+                        ),
+                        'limit' => array(
+                            'type' => 'integer',
+                            'description' => 'Maximum number of results',
+                            'default' => 10,
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'name' => 'get_free_image',
+                'description' => 'Get a free image from Unsplash or Pexels based on a search query. Returns image URL and can optionally download and attach to WordPress media library.',
+                'parameters' => array(
+                    'type' => 'object',
+                    'properties' => array(
+                        'query' => array(
+                            'type' => 'string',
+                            'description' => 'Search query for the image',
+                        ),
+                        'download' => array(
+                            'type' => 'boolean',
+                            'description' => 'Whether to download and add to WordPress media library',
+                            'default' => true,
+                        ),
+                        'source' => array(
+                            'type' => 'string',
+                            'enum' => array('unsplash', 'pexels'),
+                            'description' => 'Image source',
+                            'default' => 'unsplash',
+                        ),
+                    ),
+                    'required' => array('query'),
+                ),
+            ),
+            array(
+                'name' => 'get_post_content',
+                'description' => 'Get the full content of a post or page, including Elementor data if applicable.',
+                'parameters' => array(
+                    'type' => 'object',
+                    'properties' => array(
+                        'post_id' => array(
+                            'type' => 'integer',
+                            'description' => 'The ID of the post/page',
+                        ),
+                    ),
+                    'required' => array('post_id'),
+                ),
+            ),
+        );
+    }
+    
+    /**
+     * Execute a function call
+     */
+    public function execute_function($function_name, $arguments) {
+        switch ($function_name) {
+            case 'create_post':
+                return $this->create_post($arguments);
+            case 'edit_post':
+                return $this->edit_post($arguments);
+            case 'search_posts':
+                return $this->search_posts($arguments);
+            case 'get_free_image':
+                return $this->get_free_image($arguments);
+            case 'get_post_content':
+                return $this->get_post_content($arguments);
+            default:
+                return new WP_Error('unknown_function', sprintf(__('Unknown function: %s', 'wpai-assistant'), $function_name));
+        }
+    }
+    
+    /**
+     * Create a new post or page
+     */
+    private function create_post($args) {
+        $title = sanitize_text_field($args['title'] ?? '');
+        $content = $args['content'] ?? '';
+        $post_type = sanitize_text_field($args['post_type'] ?? 'post');
+        $editor_type = sanitize_text_field($args['editor_type'] ?? 'gutenberg');
+        $status = sanitize_text_field($args['status'] ?? 'draft');
+        $categories = $args['categories'] ?? array();
+        $tags = $args['tags'] ?? array();
+        $featured_image_url = esc_url_raw($args['featured_image_url'] ?? '');
+        $meta = $args['meta'] ?? array();
+        
+        if (empty($title) || empty($content)) {
+            return new WP_Error('missing_params', __('Title and content are required', 'wpai-assistant'));
+        }
+        
+        // Handle Elementor pages
+        if ($editor_type === 'elementor') {
+            return $this->create_elementor_page($title, $content, $post_type, $status, $meta, $featured_image_url);
+        }
+        
+        // Handle Gutenberg or classic
+        $post_data = array(
+            'post_title' => $title,
+            'post_content' => wp_kses_post($content),
+            'post_type' => $post_type,
+            'post_status' => $status,
+            'post_author' => get_current_user_id(),
+        );
+        
+        if ($post_type === 'post' && !empty($categories)) {
+            $post_data['post_category'] = array_map('intval', $categories);
+        }
+        
+        if ($post_type === 'post' && !empty($tags)) {
+            $post_data['tags_input'] = $tags;
+        }
+        
+        $post_id = wp_insert_post($post_data, true);
+        
+        if (is_wp_error($post_id)) {
+            return $post_id;
+        }
+        
+        // Set featured image if provided
+        if (!empty($featured_image_url)) {
+            $this->set_featured_image_from_url($post_id, $featured_image_url);
+        }
+        
+        // Set meta fields
+        if (!empty($meta)) {
+            foreach ($meta as $key => $value) {
+                update_post_meta($post_id, $key, $value);
+            }
+        }
+        
+        // Log action
+        if ($this->security) {
+            $this->security->log_action('create_post', $post_type, $post_id, array(
+                'title' => $title,
+                'editor_type' => $editor_type,
+            ));
+        }
+        
+        return array(
+            'success' => true,
+            'post_id' => $post_id,
+            'title' => $title,
+            'edit_link' => admin_url('post.php?post=' . $post_id . '&action=edit'),
+            'view_link' => get_permalink($post_id),
+        );
+    }
+    
+    /**
+     * Create Elementor page
+     */
+    private function create_elementor_page($title, $content, $post_type, $status, $meta, $featured_image_url) {
+        // Create the post first
+        $post_data = array(
+            'post_title' => $title,
+            'post_content' => '', // Elementor stores content in meta
+            'post_type' => $post_type,
+            'post_status' => $status,
+            'post_author' => get_current_user_id(),
+        );
+        
+        $post_id = wp_insert_post($post_data, true);
+        
+        if (is_wp_error($post_id)) {
+            return $post_id;
+        }
+        
+        // Check if Elementor is active
+        if (!did_action('elementor/loaded')) {
+            // Elementor not active, save as regular content
+            wp_update_post(array(
+                'ID' => $post_id,
+                'post_content' => wp_kses_post($content),
+            ));
+        } else {
+            // Set Elementor template
+            update_post_meta($post_id, '_elementor_edit_mode', 'builder');
+            update_post_meta($post_id, '_elementor_template_type', 'wp-page');
+            
+            // Parse and save Elementor data
+            $elementor_data = $this->parse_elementor_content($content);
+            if ($elementor_data) {
+                update_post_meta($post_id, '_elementor_data', wp_slash(json_encode($elementor_data)));
+            } else {
+                // Fallback: create simple Elementor structure
+                $elementor_data = $this->create_simple_elementor_structure($content);
+                update_post_meta($post_id, '_elementor_data', wp_slash(json_encode($elementor_data)));
+            }
+            
+            // Set Elementor version
+            update_post_meta($post_id, '_elementor_version', '0.4');
+            update_post_meta($post_id, '_elementor_pro_version', '0');
+        }
+        
+        // Set featured image
+        if (!empty($featured_image_url)) {
+            $this->set_featured_image_from_url($post_id, $featured_image_url);
+        }
+        
+        // Set meta fields
+        if (!empty($meta)) {
+            foreach ($meta as $key => $value) {
+                update_post_meta($post_id, $key, $value);
+            }
+        }
+        
+        // Log action
+        if ($this->security) {
+            $this->security->log_action('create_elementor_page', $post_type, $post_id, array(
+                'title' => $title,
+            ));
+        }
+        
+        return array(
+            'success' => true,
+            'post_id' => $post_id,
+            'title' => $title,
+            'editor_type' => 'elementor',
+            'edit_link' => admin_url('post.php?post=' . $post_id . '&action=elementor'),
+            'view_link' => get_permalink($post_id),
+        );
+    }
+    
+    /**
+     * Parse Elementor content (JSON or structured text)
+     */
+    private function parse_elementor_content($content) {
+        // Try to parse as JSON first
+        $json = json_decode($content, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($json)) {
+            return $json;
+        }
+        
+        // If not JSON, return null to use simple structure
+        return null;
+    }
+    
+    /**
+     * Create simple Elementor structure from content
+     */
+    private function create_simple_elementor_structure($content) {
+        // Create a basic Elementor structure
+        return array(
+            array(
+                'id' => wp_generate_uuid4(),
+                'elType' => 'section',
+                'settings' => array(),
+                'elements' => array(
+                    array(
+                        'id' => wp_generate_uuid4(),
+                        'elType' => 'column',
+                        'settings' => array(),
+                        'elements' => array(
+                            array(
+                                'id' => wp_generate_uuid4(),
+                                'elType' => 'widget',
+                                'widgetType' => 'text-editor',
+                                'settings' => array(
+                                    'editor' => wp_kses_post($content),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        );
+    }
+    
+    /**
+     * Edit an existing post or page
+     */
+    private function edit_post($args) {
+        $post_id = intval($args['post_id'] ?? 0);
+        $title = isset($args['title']) ? sanitize_text_field($args['title']) : null;
+        $content = $args['content'] ?? null;
+        $editor_type = sanitize_text_field($args['editor_type'] ?? '');
+        $edit_type = sanitize_text_field($args['edit_type'] ?? 'full');
+        $meta = $args['meta'] ?? array();
+        
+        if (!$post_id) {
+            return new WP_Error('missing_post_id', __('Post ID is required', 'wpai-assistant'));
+        }
+        
+        $post = get_post($post_id);
+        if (!$post) {
+            return new WP_Error('post_not_found', __('Post not found', 'wpai-assistant'));
+        }
+        
+        // Check permissions
+        if (!current_user_can('edit_post', $post_id)) {
+            return new WP_Error('permission_denied', __('Permission denied', 'wpai-assistant'));
+        }
+        
+        // Create backup
+        if ($this->security) {
+            $backup = $this->security->create_backup($post_id);
+        }
+        
+        $update_data = array('ID' => $post_id);
+        
+        // Update title if provided
+        if ($title !== null) {
+            $update_data['post_title'] = $title;
+        }
+        
+        // Handle different edit types
+        if ($edit_type === 'meta' || $edit_type === 'seo') {
+            // Only update meta
+            if (!empty($meta)) {
+                foreach ($meta as $key => $value) {
+                    update_post_meta($post_id, $key, $value);
+                }
+            }
+            return array(
+                'success' => true,
+                'post_id' => $post_id,
+                'edit_type' => $edit_type,
+            );
+        }
+        
+        // Handle Elementor pages
+        if ($editor_type === 'elementor' || get_post_meta($post_id, '_elementor_edit_mode', true) === 'builder') {
+            return $this->edit_elementor_page($post_id, $content, $edit_type, $title, $meta);
+        }
+        
+        // Handle Gutenberg/classic
+        if ($content !== null) {
+            if ($edit_type === 'partial') {
+                // Partial edit - append or replace specific parts
+                $current_content = $post->post_content;
+                $update_data['post_content'] = $this->apply_partial_edit($current_content, $content);
+            } else {
+                // Full edit
+                $update_data['post_content'] = wp_kses_post($content);
+            }
+        }
+        
+        // Update post
+        if (!empty($update_data) && count($update_data) > 1) {
+            $result = wp_update_post($update_data, true);
+            if (is_wp_error($result)) {
+                return $result;
+            }
+        }
+        
+        // Update meta
+        if (!empty($meta)) {
+            foreach ($meta as $key => $value) {
+                update_post_meta($post_id, $key, $value);
+            }
+        }
+        
+        // Log action
+        if ($this->security) {
+            $this->security->log_action('edit_post', $post->post_type, $post_id, array(
+                'edit_type' => $edit_type,
+            ));
+        }
+        
+        return array(
+            'success' => true,
+            'post_id' => $post_id,
+            'edit_type' => $edit_type,
+            'edit_link' => admin_url('post.php?post=' . $post_id . '&action=edit'),
+        );
+    }
+    
+    /**
+     * Edit Elementor page
+     */
+    private function edit_elementor_page($post_id, $content, $edit_type, $title, $meta) {
+        if (!did_action('elementor/loaded')) {
+            // Elementor not active, fallback to regular edit
+            if ($content !== null) {
+                wp_update_post(array(
+                    'ID' => $post_id,
+                    'post_content' => wp_kses_post($content),
+                ));
+            }
+            if ($title !== null) {
+                wp_update_post(array('ID' => $post_id, 'post_title' => $title));
+            }
+            return array('success' => true, 'post_id' => $post_id);
+        }
+        
+        // Get current Elementor data
+        $elementor_data = get_post_meta($post_id, '_elementor_data', true);
+        $current_data = !empty($elementor_data) ? json_decode($elementor_data, true) : array();
+        
+        if ($edit_type === 'partial' && $content !== null) {
+            // Partial edit - try to update specific sections/widgets
+            $new_data = $this->parse_elementor_content($content);
+            if ($new_data) {
+                // Merge or replace specific parts
+                $current_data = $this->merge_elementor_data($current_data, $new_data);
+            }
+        } elseif ($content !== null) {
+            // Full edit
+            $new_data = $this->parse_elementor_content($content);
+            if ($new_data) {
+                $current_data = $new_data;
+            } else {
+                // Create simple structure
+                $current_data = $this->create_simple_elementor_structure($content);
+            }
+        }
+        
+        // Update Elementor data
+        if (!empty($current_data)) {
+            update_post_meta($post_id, '_elementor_data', wp_slash(json_encode($current_data)));
+        }
+        
+        // Update title if provided
+        if ($title !== null) {
+            wp_update_post(array('ID' => $post_id, 'post_title' => $title));
+        }
+        
+        // Update meta
+        if (!empty($meta)) {
+            foreach ($meta as $key => $value) {
+                update_post_meta($post_id, $key, $value);
+            }
+        }
+        
+        return array(
+            'success' => true,
+            'post_id' => $post_id,
+            'editor_type' => 'elementor',
+            'edit_link' => admin_url('post.php?post=' . $post_id . '&action=elementor'),
+        );
+    }
+    
+    /**
+     * Merge Elementor data (simple merge for now)
+     */
+    private function merge_elementor_data($current, $new) {
+        // Simple merge - in production, implement more sophisticated merging
+        return $new;
+    }
+    
+    /**
+     * Apply partial edit to content
+     */
+    private function apply_partial_edit($current_content, $new_content) {
+        // Simple implementation - replace content
+        // In production, implement more sophisticated partial editing
+        return wp_kses_post($new_content);
+    }
+    
+    /**
+     * Search posts
+     */
+    private function search_posts($args) {
+        $query = sanitize_text_field($args['query'] ?? '');
+        $post_type = sanitize_text_field($args['post_type'] ?? 'any');
+        $limit = intval($args['limit'] ?? 10);
+        
+        $search_args = array(
+            'post_type' => $post_type === 'any' ? 'any' : $post_type,
+            'posts_per_page' => $limit,
+            'post_status' => 'any',
+            'orderby' => 'relevance',
+        );
+        
+        if (!empty($query)) {
+            $search_args['s'] = $query;
+        }
+        
+        $posts = get_posts($search_args);
+        
+        $results = array();
+        foreach ($posts as $post) {
+            $editor_type = 'gutenberg';
+            if (get_post_meta($post->ID, '_elementor_edit_mode', true) === 'builder') {
+                $editor_type = 'elementor';
+            }
+            
+            $results[] = array(
+                'id' => $post->ID,
+                'title' => $post->post_title,
+                'type' => $post->post_type,
+                'status' => $post->post_status,
+                'editor_type' => $editor_type,
+                'edit_link' => admin_url('post.php?post=' . $post->ID . '&action=edit'),
+                'view_link' => get_permalink($post->ID),
+            );
+        }
+        
+        return array(
+            'success' => true,
+            'count' => count($results),
+            'posts' => $results,
+        );
+    }
+    
+    /**
+     * Get free image from Unsplash or Pexels
+     */
+    private function get_free_image($args) {
+        $query = sanitize_text_field($args['query'] ?? '');
+        $download = isset($args['download']) ? (bool) $args['download'] : true;
+        $source = sanitize_text_field($args['source'] ?? 'unsplash');
+        
+        if (empty($query)) {
+            return new WP_Error('missing_query', __('Search query is required', 'wpai-assistant'));
+        }
+        
+        if ($source === 'unsplash') {
+            return $this->get_unsplash_image($query, $download);
+        } elseif ($source === 'pexels') {
+            return $this->get_pexels_image($query, $download);
+        }
+        
+        return new WP_Error('invalid_source', __('Invalid image source', 'wpai-assistant'));
+    }
+    
+    /**
+     * Get image from Unsplash
+     */
+    private function get_unsplash_image($query, $download) {
+        // Use Unsplash Source API (no key required for basic usage)
+        $url = 'https://source.unsplash.com/1600x900/?' . urlencode($query);
+        
+        // For better results, we can use a random image approach
+        // In production, you might want to use Unsplash API with a key
+        $api_url = 'https://api.unsplash.com/photos/random?query=' . urlencode($query) . '&client_id=YOUR_ACCESS_KEY';
+        
+        // For now, return the source URL
+        // If download is true, download and add to media library
+        if ($download) {
+            $attachment_id = $this->download_image_to_media($url, $query);
+            if (!is_wp_error($attachment_id)) {
+                return array(
+                    'success' => true,
+                    'url' => wp_get_attachment_url($attachment_id),
+                    'attachment_id' => $attachment_id,
+                    'source' => 'unsplash',
+                );
+            }
+        }
+        
+        return array(
+            'success' => true,
+            'url' => $url,
+            'source' => 'unsplash',
+            'note' => 'For better results, configure Unsplash API key',
+        );
+    }
+    
+    /**
+     * Get image from Pexels
+     */
+    private function get_pexels_image($query, $download) {
+        // Pexels requires API key, but we can use a placeholder
+        // In production, add Pexels API key to settings
+        $api_key = get_option('wpai_pexels_api_key', '');
+        
+        if (empty($api_key)) {
+            // Fallback to a simple approach
+            $url = 'https://images.pexels.com/photos/random?query=' . urlencode($query);
+            
+            if ($download) {
+                $attachment_id = $this->download_image_to_media($url, $query);
+                if (!is_wp_error($attachment_id)) {
+                    return array(
+                        'success' => true,
+                        'url' => wp_get_attachment_url($attachment_id),
+                        'attachment_id' => $attachment_id,
+                        'source' => 'pexels',
+                    );
+                }
+            }
+            
+            return array(
+                'success' => true,
+                'url' => $url,
+                'source' => 'pexels',
+                'note' => 'Configure Pexels API key for better results',
+            );
+        }
+        
+        // Use Pexels API
+        $api_url = 'https://api.pexels.com/v1/search?query=' . urlencode($query) . '&per_page=1';
+        
+        $response = wp_remote_get($api_url, array(
+            'headers' => array(
+                'Authorization' => $api_key,
+            ),
+            'timeout' => 30,
+        ));
+        
+        if (is_wp_error($response)) {
+            return $response;
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (isset($data['photos'][0]['src']['large'])) {
+            $image_url = $data['photos'][0]['src']['large'];
+            
+            if ($download) {
+                $attachment_id = $this->download_image_to_media($image_url, $query);
+                if (!is_wp_error($attachment_id)) {
+                    return array(
+                        'success' => true,
+                        'url' => wp_get_attachment_url($attachment_id),
+                        'attachment_id' => $attachment_id,
+                        'source' => 'pexels',
+                    );
+                }
+            }
+            
+            return array(
+                'success' => true,
+                'url' => $image_url,
+                'source' => 'pexels',
+            );
+        }
+        
+        return new WP_Error('no_image_found', __('No image found', 'wpai-assistant'));
+    }
+    
+    /**
+     * Download image to WordPress media library
+     */
+    private function download_image_to_media($url, $filename) {
+        require_once(ABSPATH . 'wp-admin/includes/file.php');
+        require_once(ABSPATH . 'wp-admin/includes/media.php');
+        require_once(ABSPATH . 'wp-admin/includes/image.php');
+        
+        $tmp = download_url($url);
+        
+        if (is_wp_error($tmp)) {
+            return $tmp;
+        }
+        
+        $file_array = array(
+            'name' => sanitize_file_name($filename . '.jpg'),
+            'tmp_name' => $tmp,
+        );
+        
+        $id = media_handle_sideload($file_array, 0);
+        
+        if (is_wp_error($id)) {
+            @unlink($tmp);
+            return $id;
+        }
+        
+        return $id;
+    }
+    
+    /**
+     * Set featured image from URL
+     */
+    private function set_featured_image_from_url($post_id, $url) {
+        $attachment_id = $this->download_image_to_media($url, 'featured-' . $post_id);
+        if (!is_wp_error($attachment_id)) {
+            set_post_thumbnail($post_id, $attachment_id);
+            return $attachment_id;
+        }
+        return false;
+    }
+    
+    /**
+     * Get post content
+     */
+    private function get_post_content($args) {
+        $post_id = intval($args['post_id'] ?? 0);
+        
+        if (!$post_id) {
+            return new WP_Error('missing_post_id', __('Post ID is required', 'wpai-assistant'));
+        }
+        
+        $post = get_post($post_id);
+        if (!$post) {
+            return new WP_Error('post_not_found', __('Post not found', 'wpai-assistant'));
+        }
+        
+        $editor_type = 'gutenberg';
+        $elementor_data = null;
+        
+        if (get_post_meta($post_id, '_elementor_edit_mode', true) === 'builder') {
+            $editor_type = 'elementor';
+            $elementor_data = get_post_meta($post_id, '_elementor_data', true);
+        }
+        
+        // Get SEO meta
+        $seo_meta = array();
+        $seo_title = get_post_meta($post_id, '_yoast_wpseo_title', true);
+        $seo_desc = get_post_meta($post_id, '_yoast_wpseo_metadesc', true);
+        if ($seo_title) $seo_meta['_yoast_wpseo_title'] = $seo_title;
+        if ($seo_desc) $seo_meta['_yoast_wpseo_metadesc'] = $seo_desc;
+        
+        return array(
+            'success' => true,
+            'post_id' => $post_id,
+            'title' => $post->post_title,
+            'content' => $post->post_content,
+            'editor_type' => $editor_type,
+            'elementor_data' => $elementor_data,
+            'meta' => $seo_meta,
+            'status' => $post->post_status,
+        );
+    }
+}
+

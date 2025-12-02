@@ -16,29 +16,51 @@ $topics = $topic_manager->list_topics();
     
     <div class="wpai-chat-container">
         <div class="wpai-chat-sidebar">
-            <h3><?php _e('Topics', 'wpai-assistant'); ?></h3>
-            <select id="wpai-topic-select" class="wpai-select">
-                <option value=""><?php _e('No Topic', 'wpai-assistant'); ?></option>
-                <?php foreach ($topics as $topic): ?>
-                    <option value="<?php echo esc_attr($topic->id); ?>"><?php echo esc_html($topic->name); ?></option>
-                <?php endforeach; ?>
-            </select>
-            
-            <h3><?php _e('Thinking Degree', 'wpai-assistant'); ?></h3>
-            <div class="wpai-thinking-degree">
-                <input type="range" id="wpai-thinking-degree" min="0" max="100" value="50" />
-                <div class="wpai-degree-labels">
-                    <span><?php _e('Conservative', 'wpai-assistant'); ?></span>
-                    <span><?php _e('Balanced', 'wpai-assistant'); ?></span>
-                    <span><?php _e('Creative', 'wpai-assistant'); ?></span>
+            <div class="wpai-sidebar-section">
+                <h3><?php _e('Select Post/Page', 'wpai-assistant'); ?></h3>
+                <div class="wpai-post-selector">
+                    <input type="text" id="wpai-post-search" placeholder="<?php esc_attr_e('Search posts...', 'wpai-assistant'); ?>" class="wpai-search-input" />
+                    <div id="wpai-post-search-results" class="wpai-search-results"></div>
+                    <div id="wpai-selected-post" class="wpai-selected-post" style="display: none;">
+                        <div class="wpai-selected-post-info">
+                            <strong id="wpai-selected-post-title"></strong>
+                            <span id="wpai-selected-post-type" class="wpai-post-badge"></span>
+                            <a href="#" id="wpai-selected-post-edit" target="_blank" class="wpai-edit-link"><?php _e('Edit', 'wpai-assistant'); ?></a>
+                        </div>
+                        <button type="button" id="wpai-clear-selected-post" class="button-link"><?php _e('Clear', 'wpai-assistant'); ?></button>
+                    </div>
                 </div>
-                <span id="wpai-degree-value">50</span>
             </div>
             
-            <h3><?php _e('File Upload', 'wpai-assistant'); ?></h3>
-            <input type="file" id="wpai-file-upload" accept=".txt,.md,.docx,.pdf,.jpg,.jpeg,.png,.gif,.webp" />
-            <button type="button" id="wpai-upload-btn" class="button"><?php _e('Upload', 'wpai-assistant'); ?></button>
-            <div id="wpai-uploaded-files"></div>
+            <div class="wpai-sidebar-section">
+                <h3><?php _e('Topics', 'wpai-assistant'); ?></h3>
+                <select id="wpai-topic-select" class="wpai-select">
+                    <option value=""><?php _e('No Topic', 'wpai-assistant'); ?></option>
+                    <?php foreach ($topics as $topic): ?>
+                        <option value="<?php echo esc_attr($topic->id); ?>"><?php echo esc_html($topic->name); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            
+            <div class="wpai-sidebar-section">
+                <h3><?php _e('Thinking Degree', 'wpai-assistant'); ?></h3>
+                <div class="wpai-thinking-degree">
+                    <input type="range" id="wpai-thinking-degree" min="0" max="100" value="50" />
+                    <div class="wpai-degree-labels">
+                        <span><?php _e('Conservative', 'wpai-assistant'); ?></span>
+                        <span><?php _e('Balanced', 'wpai-assistant'); ?></span>
+                        <span><?php _e('Creative', 'wpai-assistant'); ?></span>
+                    </div>
+                    <span id="wpai-degree-value">50</span>
+                </div>
+            </div>
+            
+            <div class="wpai-sidebar-section">
+                <h3><?php _e('File Upload', 'wpai-assistant'); ?></h3>
+                <input type="file" id="wpai-file-upload" accept=".txt,.md,.docx,.pdf,.jpg,.jpeg,.png,.gif,.webp" />
+                <button type="button" id="wpai-upload-btn" class="button"><?php _e('Upload', 'wpai-assistant'); ?></button>
+                <div id="wpai-uploaded-files"></div>
+            </div>
         </div>
         
         <div class="wpai-chat-main">
