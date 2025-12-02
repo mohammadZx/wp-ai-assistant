@@ -18,6 +18,8 @@ class WPAI_Plugin {
     public $security;
     public $content_generator;
     public $file_handler;
+    public $gutenberg_integration;
+    public $elementor_integration;
     
     /**
      * Get singleton instance
@@ -53,6 +55,8 @@ class WPAI_Plugin {
         require_once WPAI_PLUGIN_DIR . 'includes/class-wpai-file-handler.php';
         require_once WPAI_PLUGIN_DIR . 'includes/class-wpai-topic-manager.php';
         require_once WPAI_PLUGIN_DIR . 'includes/class-wpai-function-handler.php';
+        require_once WPAI_PLUGIN_DIR . 'includes/class-wpai-gutenberg-integration.php';
+        require_once WPAI_PLUGIN_DIR . 'includes/class-wpai-elementor-integration.php';
     }
     
     /**
@@ -69,6 +73,8 @@ class WPAI_Plugin {
         $this->admin = new WPAI_Admin($this);
         $this->chat = new WPAI_Chat($this->api);
         $this->crawler = new WPAI_Crawler($this->api, $this->content_generator);
+        $this->gutenberg_integration = new WPAI_Gutenberg_Integration($this);
+        $this->elementor_integration = new WPAI_Elementor_Integration($this);
     }
     
     /**

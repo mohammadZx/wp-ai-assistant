@@ -1,0 +1,36 @@
+/**
+ * Gutenberg Sidebar Styles
+ */
+
+.wpai-gutenberg-sidebar .components-panel__body {
+    border-top: 1px solid #ddd;
+}
+
+.wpai-gutenberg-sidebar .components-textarea-control__input {
+    width: 100%;
+    min-height: 100px;
+}
+
+.wpai-gutenberg-sidebar .wpai-preview-content {
+    padding: 10px;
+    background: #f0f0f1;
+    border-radius: 4px;
+    margin: 15px 0;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.wpai-gutenberg-sidebar .wpai-preview-content * {
+    max-width: 100%;
+}
+
+.wpai-gutenberg-sidebar .components-button-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.wpai-gutenberg-sidebar .components-button-group .components-button {
+    flex: 1;
+}
+

@@ -1,0 +1,151 @@
+/**
+ * Elementor Panel Styles - Container-based Structure
+ */
+
+/* Panel Menu Item */
+#elementor-panel-menu-item-wpai-assistant {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+#elementor-panel-menu-item-wpai-assistant:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+#elementor-panel-menu-item-wpai-assistant.elementor-active {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+#elementor-panel-menu-item-wpai-assistant .elementor-panel-menu-item-icon {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#elementor-panel-menu-item-wpai-assistant .elementor-panel-menu-item-icon i {
+    font-size: 16px;
+}
+
+/* Panel Content */
+#elementor-panel-wpai-assistant {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: #f1f3f5;
+    z-index: 1000;
+    overflow-y: auto;
+}
+
+#elementor-panel-wpai-assistant .elementor-panel-box {
+    background: #fff;
+    margin: 10px;
+    border-radius: 3px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+#elementor-panel-wpai-assistant .elementor-panel-heading {
+    padding: 15px 20px;
+    border-bottom: 1px solid #e0e0e0;
+    background: #f9f9f9;
+}
+
+#elementor-panel-wpai-assistant .elementor-panel-heading-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e1e1e;
+}
+
+#elementor-panel-wpai-assistant .elementor-panel-body {
+    padding: 20px;
+}
+
+#elementor-panel-wpai-assistant .elementor-control-section {
+    margin-bottom: 20px;
+}
+
+#elementor-panel-wpai-assistant #wpai-elementor-prompt {
+    width: 100%;
+    min-height: 120px;
+    padding: 10px;
+    border: 1px solid #d5dadf;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: 13px;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+#elementor-panel-wpai-assistant #wpai-elementor-prompt:focus {
+    border-color: #5b9dd9;
+    outline: none;
+    box-shadow: 0 0 0 1px #5b9dd9;
+}
+
+#elementor-panel-wpai-assistant #wpai-elementor-apply {
+    width: 100%;
+    padding: 12px 20px;
+    font-size: 13px;
+    font-weight: 500;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: #2271b1;
+    color: #fff;
+}
+
+#elementor-panel-wpai-assistant #wpai-elementor-apply:hover:not(:disabled) {
+    background: #135e96;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+#elementor-panel-wpai-assistant #wpai-elementor-apply:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+#elementor-panel-wpai-assistant #wpai-elementor-status {
+    padding: 12px 15px;
+    border-radius: 3px;
+    margin-top: 15px;
+    font-size: 13px;
+}
+
+#elementor-panel-wpai-assistant #wpai-elementor-status.notice-success {
+    background: #d4edda;
+    border-left: 4px solid #28a745;
+    color: #155724;
+}
+
+#elementor-panel-wpai-assistant #wpai-elementor-status.notice-error {
+    background: #f8d7da;
+    border-left: 4px solid #dc3545;
+    color: #721c24;
+}
+
+#elementor-panel-wpai-assistant #wpai-elementor-preview {
+    padding: 15px;
+    background: #f0f0f1;
+    border-radius: 3px;
+    margin-top: 15px;
+    max-height: 300px;
+    overflow-y: auto;
+    font-size: 13px;
+}
+
+#elementor-panel-wpai-assistant #wpai-elementor-preview * {
+    max-width: 100%;
+}
+
+/* Ensure panel is visible when active */
+#elementor-panel-menu-item-wpai-assistant.elementor-active ~ #elementor-panel-wpai-assistant,
+#elementor-panel-wpai-assistant:not([style*="display: none"]) {
+    display: block !important;
+}
+

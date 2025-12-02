@@ -63,7 +63,25 @@ jQuery(document).ready(function($) {
     
     // Improve content
     $('#wpai-improve-content').on('click', function() {
-        const currentContent = $('#content').val() || '';
+        let currentContent = '';
+        
+        // Try to get content from Gutenberg first
+        if (typeof wp !== 'undefined' && wp.data && wp.data.select) {
+            const editor = wp.data.select('core/editor');
+            if (editor) {
+                currentContent = editor.getEditedPostContent() || '';
+            }
+        }
+        
+        // Fallback to classic editor
+        if (!currentContent) {
+            if (typeof tinyMCE !== 'undefined' && tinyMCE.activeEditor) {
+                currentContent = tinyMCE.activeEditor.getContent() || '';
+            } else {
+                currentContent = $('#content').val() || '';
+            }
+        }
+        
         if (!currentContent.trim()) {
             alert('<?php _e('No content to improve. Please add some content first.', 'wpai-assistant'); ?>');
             return;
@@ -92,7 +110,7 @@ jQuery(document).ready(function($) {
                 post_type: '<?php echo get_post_type($post_id); ?>',
                 context: JSON.stringify({
                     post_id: postId,
-                    format: '<?php echo get_post_type($post_id) === 'page' ? 'gutenberg' : 'classic'; ?>'
+                    format: (typeof wp !== 'undefined' && wp.data && wp.data.select('core/editor')) ? 'gutenberg' : 'classic'
                 }),
                 settings: JSON.stringify({})
             },
@@ -120,8 +138,26 @@ jQuery(document).ready(function($) {
         
         // Apply to editor
         if (typeof wp !== 'undefined' && wp.data && wp.data.dispatch) {
-            // Gutenberg editor
-            wp.data.dispatch('core/editor').editPost({ content: content });
+            // Gutenberg editor - use blocks if content is in block format
+            const editor = wp.data.select('core/editor');
+            const isGutenberg = editor && editor.getCurrentPost();
+            
+            if (isGutenberg) {
+                // Check if content contains block comments (Gutenberg format)
+                if (content.includes('<!-- wp:')) {
+                    // Content is in block format, apply directly
+                    wp.data.dispatch('core/editor').editPost({ content: content });
+                } else {
+                    // Convert HTML to blocks
+                    const blocks = wp.blocks.parse(content);
+                    wp.data.dispatch('core/block-editor').resetBlocks(blocks);
+                }
+                
+                // Save the post
+                wp.data.dispatch('core/editor').savePost();
+            } else {
+                wp.data.dispatch('core/editor').editPost({ content: content });
+            }
         } else {
             // Classic editor
             if (typeof tinyMCE !== 'undefined' && tinyMCE.activeEditor) {
@@ -131,7 +167,33 @@ jQuery(document).ready(function($) {
             }
         }
         
-        $('#wpai-meta-preview').slideUp();
+        // Also save via AJAX for persistence
+        $.ajax({
+            url: wpaiData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'wpai_apply_content',
+                nonce: wpaiData.nonce,
+                post_id: postId,
+                content: content
+            },
+            success: function(response) {
+                if (response.success) {
+                    $('#wpai-meta-preview').slideUp();
+                    // Show success message
+                    if (typeof wp !== 'undefined' && wp.data) {
+                        // Gutenberg - changes are already visible
+                    } else {
+                        alert('<?php _e('Content applied successfully', 'wpai-assistant'); ?>');
+                    }
+                } else {
+                    alert('Error: ' + (response.data.message || '<?php _e('Failed to apply content', 'wpai-assistant'); ?>'));
+                }
+            },
+            error: function() {
+                alert('<?php _e('An error occurred while applying content', 'wpai-assistant'); ?>');
+            }
+        });
     });
     
     // Dismiss preview
