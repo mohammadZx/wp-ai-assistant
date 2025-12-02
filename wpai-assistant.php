@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: WP AI Assistant
- * Plugin URI: https://example.com/wpai-assistant
+ * Plugin URI: https://aryatehran.com
  * Description: AI-powered content generation and management assistant for WordPress
  * Version: 1.0.0
- * Author: Your Name
- * Author URI: https://example.com
+ * Author: Mohammad Yazdani
+ * Author URI: https://aryatehran.com
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: wpai-assistant

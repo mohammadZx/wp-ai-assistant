@@ -118,7 +118,35 @@
                         $('#' + loadingId).removeClass('loading').html(responseHtml);
                         WPAI.sessionId = response.data.session_id;
                     } else {
-                        $('#' + loadingId).removeClass('loading').html('<span style="color: #d63638;">Error: ' + response.data.message + '</span>');
+                        // Display detailed error information
+                        let errorHtml = '<div style="color: #d63638; padding: 10px; background: #fef7f7; border-left: 3px solid #d63638; border-radius: 4px;">';
+                        errorHtml += '<strong>Error: ' + escapeHtml(response.data.message || 'Unknown error') + '</strong>';
+                        
+                        // Show error code if available
+                        if (response.data.error_code) {
+                            errorHtml += '<br><small>Error Code: ' + escapeHtml(response.data.error_code) + '</small>';
+                        }
+                        
+                        // Show error data if available
+                        if (response.data.error_data) {
+                            errorHtml += '<details style="margin-top: 10px;">';
+                            errorHtml += '<summary style="cursor: pointer; color: #2271b1; font-weight: bold;">View Error Details</summary>';
+                            errorHtml += '<pre style="background: #f0f0f1; padding: 10px; border-radius: 4px; overflow-x: auto; margin-top: 5px; font-size: 12px; max-height: 300px; overflow-y: auto;">';
+                            errorHtml += escapeHtml(JSON.stringify(response.data.error_data, null, 2));
+                            errorHtml += '</pre></details>';
+                        }
+                        
+                        // Show API response if available
+                        if (response.data.api_response) {
+                            errorHtml += '<details style="margin-top: 10px;">';
+                            errorHtml += '<summary style="cursor: pointer; color: #2271b1; font-weight: bold;">View API Response</summary>';
+                            errorHtml += '<pre style="background: #f0f0f1; padding: 10px; border-radius: 4px; overflow-x: auto; margin-top: 5px; font-size: 12px; max-height: 300px; overflow-y: auto;">';
+                            errorHtml += escapeHtml(JSON.stringify(response.data.api_response, null, 2));
+                            errorHtml += '</pre></details>';
+                        }
+                        
+                        errorHtml += '</div>';
+                        $('#' + loadingId).removeClass('loading').html(errorHtml);
                     }
                 },
                 error: function() {

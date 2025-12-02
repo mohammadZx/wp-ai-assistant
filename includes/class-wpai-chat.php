@@ -394,7 +394,27 @@ class WPAI_Chat {
         $result = $this->send_message($message, $session_id, $context, $settings);
         
         if (is_wp_error($result)) {
-            wp_send_json_error(array('message' => $result->get_error_message()));
+            // Include full error details
+            $error_data = array(
+                'message' => $result->get_error_message(),
+                'error_code' => $result->get_error_code(),
+            );
+            
+            // Add error data if available
+            $error_details = $result->get_error_data();
+            if (!empty($error_details)) {
+                $error_data['error_data'] = $error_details;
+            }
+            
+            // Add last API response if available
+            if ($this->api_manager) {
+                $last_response = $this->api_manager->get_last_response();
+                if (!empty($last_response)) {
+                    $error_data['api_response'] = $last_response;
+                }
+            }
+            
+            wp_send_json_error($error_data);
         }
         
         wp_send_json_success($result);

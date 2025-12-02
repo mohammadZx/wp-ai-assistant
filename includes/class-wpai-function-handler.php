@@ -176,6 +176,75 @@ class WPAI_Function_Handler {
                     'required' => array('post_id'),
                 ),
             ),
+            array(
+                'name' => 'crawl_url_for_page',
+                'description' => 'Crawl a URL to extract content, structure, and design. Then create a similar page with Elementor. Useful for creating pages based on existing websites.',
+                'parameters' => array(
+                    'type' => 'object',
+                    'properties' => array(
+                        'url' => array(
+                            'type' => 'string',
+                            'description' => 'The URL to crawl and analyze',
+                        ),
+                        'create_page' => array(
+                            'type' => 'boolean',
+                            'description' => 'Whether to automatically create a page based on the crawled content',
+                            'default' => true,
+                        ),
+                        'editor_type' => array(
+                            'type' => 'string',
+                            'enum' => array('elementor', 'gutenberg'),
+                            'description' => 'Editor type for the created page',
+                            'default' => 'elementor',
+                        ),
+                    ),
+                    'required' => array('url'),
+                ),
+            ),
+            array(
+                'name' => 'analyze_image',
+                'description' => 'Analyze an image URL using Vision API to understand its content, layout, and design. Then create a similar Elementor page based on the image.',
+                'parameters' => array(
+                    'type' => 'object',
+                    'properties' => array(
+                        'image_url' => array(
+                            'type' => 'string',
+                            'description' => 'URL of the image to analyze',
+                        ),
+                        'create_page' => array(
+                            'type' => 'boolean',
+                            'description' => 'Whether to automatically create a page based on the image analysis',
+                            'default' => true,
+                        ),
+                    ),
+                    'required' => array('image_url'),
+                ),
+            ),
+            array(
+                'name' => 'generate_image',
+                'description' => 'Generate an image using DALL-E or other image generation API based on a text description. Returns image URL and can download to media library.',
+                'parameters' => array(
+                    'type' => 'object',
+                    'properties' => array(
+                        'prompt' => array(
+                            'type' => 'string',
+                            'description' => 'Text description of the image to generate',
+                        ),
+                        'size' => array(
+                            'type' => 'string',
+                            'enum' => array('256x256', '512x512', '1024x1024', '1024x1792', '1792x1024'),
+                            'description' => 'Size of the generated image',
+                            'default' => '1024x1024',
+                        ),
+                        'download' => array(
+                            'type' => 'boolean',
+                            'description' => 'Whether to download and add to WordPress media library',
+                            'default' => true,
+                        ),
+                    ),
+                    'required' => array('prompt'),
+                ),
+            ),
         );
     }
     
@@ -194,6 +263,12 @@ class WPAI_Function_Handler {
                 return $this->get_free_image($arguments);
             case 'get_post_content':
                 return $this->get_post_content($arguments);
+            case 'crawl_url_for_page':
+                return $this->crawl_url_for_page($arguments);
+            case 'analyze_image':
+                return $this->analyze_image($arguments);
+            case 'generate_image':
+                return $this->generate_image($arguments);
             default:
                 return new WP_Error('unknown_function', sprintf(__('Unknown function: %s', 'wpai-assistant'), $function_name));
         }
@@ -365,33 +440,125 @@ class WPAI_Function_Handler {
     
     /**
      * Create simple Elementor structure from content
+     * Improved to support complex landing pages
      */
     private function create_simple_elementor_structure($content) {
-        // Create a basic Elementor structure
-        return array(
-            array(
-                'id' => wp_generate_uuid4(),
-                'elType' => 'section',
-                'settings' => array(),
-                'elements' => array(
-                    array(
-                        'id' => wp_generate_uuid4(),
-                        'elType' => 'column',
-                        'settings' => array(),
-                        'elements' => array(
-                            array(
-                                'id' => wp_generate_uuid4(),
-                                'elType' => 'widget',
-                                'widgetType' => 'text-editor',
-                                'settings' => array(
-                                    'editor' => wp_kses_post($content),
-                                ),
+        // Try to parse as structured Elementor JSON first
+        $parsed = $this->parse_elementor_content($content);
+        if ($parsed && is_array($parsed)) {
+            return $parsed;
+        }
+        
+        // If content contains Elementor structure hints, parse them
+        if (strpos($content, '<!-- wp:elementor') !== false || strpos($content, 'elementor-section') !== false) {
+            return $this->parse_elementor_from_text($content);
+        }
+        
+        // Create a proper Elementor landing page structure
+        $sections = array();
+        
+        // Hero Section
+        $sections[] = array(
+            'id' => wp_generate_uuid4(),
+            'elType' => 'section',
+            'settings' => array(
+                'layout' => 'boxed',
+                'background_background' => 'classic',
+            ),
+            'elements' => array(
+                array(
+                    'id' => wp_generate_uuid4(),
+                    'elType' => 'column',
+                    'settings' => array(
+                        '_column_size' => 100,
+                    ),
+                    'elements' => array(
+                        array(
+                            'id' => wp_generate_uuid4(),
+                            'elType' => 'widget',
+                            'widgetType' => 'heading',
+                            'settings' => array(
+                                'title' => $this->extract_title_from_content($content),
+                                'size' => 'h1',
+                                'align' => 'center',
+                            ),
+                        ),
+                        array(
+                            'id' => wp_generate_uuid4(),
+                            'elType' => 'widget',
+                            'widgetType' => 'text-editor',
+                            'settings' => array(
+                                'editor' => wp_kses_post($content),
+                                'align' => 'center',
                             ),
                         ),
                     ),
                 ),
             ),
         );
+        
+        return $sections;
+    }
+    
+    /**
+     * Parse Elementor structure from text description
+     */
+    private function parse_elementor_from_text($text) {
+        $sections = array();
+        $lines = explode("\n", $text);
+        $current_section = null;
+        
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line)) continue;
+            
+            // Detect section headers
+            if (preg_match('/^(#+)\s*(.+)$/', $line, $matches)) {
+                $level = strlen($matches[1]);
+                $title = $matches[2];
+                
+                // Close previous section
+                if ($current_section) {
+                    $sections[] = $current_section;
+                }
+                
+                // Create new section
+                $current_section = $this->create_elementor_section('content', array(
+                    'title' => $title,
+                    'level' => $level,
+                ));
+            } elseif ($current_section) {
+                // Add content to current section
+                $widget = &$current_section['elements'][0]['elements'];
+                if (!empty($widget[0]['settings']['editor'])) {
+                    $widget[0]['settings']['editor'] .= "\n" . $line;
+                } else {
+                    $widget[0]['settings']['editor'] = $line;
+                }
+            }
+        }
+        
+        if ($current_section) {
+            $sections[] = $current_section;
+        }
+        
+        return !empty($sections) ? $sections : $this->create_simple_elementor_structure($text);
+    }
+    
+    /**
+     * Extract title from content
+     */
+    private function extract_title_from_content($content) {
+        // Try to find H1 or first line
+        if (preg_match('/<h1[^>]*>(.*?)<\/h1>/i', $content, $matches)) {
+            return wp_strip_all_tags($matches[1]);
+        }
+        if (preg_match('/^#+\s*(.+)$/m', $content, $matches)) {
+            return trim($matches[1]);
+        }
+        // Get first sentence
+        $first_line = explode("\n", wp_strip_all_tags($content))[0];
+        return wp_trim_words($first_line, 10);
     }
     
     /**
@@ -829,6 +996,593 @@ class WPAI_Function_Handler {
             'elementor_data' => $elementor_data,
             'meta' => $seo_meta,
             'status' => $post->post_status,
+        );
+    }
+    
+    /**
+     * Crawl URL and create similar page
+     */
+    private function crawl_url_for_page($args) {
+        $url = esc_url_raw($args['url'] ?? '');
+        $create_page = isset($args['create_page']) ? (bool) $args['create_page'] : true;
+        $editor_type = sanitize_text_field($args['editor_type'] ?? 'elementor');
+        
+        if (empty($url)) {
+            return new WP_Error('missing_url', __('URL is required', 'wpai-assistant'));
+        }
+        
+        // Use crawler to get content
+        $crawler = new WPAI_Crawler();
+        $crawl_result = $crawler->crawl_url($url);
+        
+        if (is_wp_error($crawl_result)) {
+            return $crawl_result;
+        }
+        
+        // Extract structure information
+        $structure_info = array(
+            'title' => $crawl_result['title'] ?? '',
+            'content' => $crawl_result['content'] ?? '',
+            'meta' => $crawl_result['meta'] ?? array(),
+            'has_header' => false,
+            'has_footer' => false,
+            'sections' => array(),
+        );
+        
+        // Analyze HTML structure if available
+        $response = wp_remote_get($url, array('timeout' => 30));
+        if (!is_wp_error($response)) {
+            $html = wp_remote_retrieve_body($response);
+            $structure_info['html_structure'] = $this->analyze_html_structure($html);
+        }
+        
+        if (!$create_page) {
+            return array(
+                'success' => true,
+                'crawled_data' => $structure_info,
+                'message' => __('URL crawled successfully. Use create_post with this data.', 'wpai-assistant'),
+            );
+        }
+        
+        // Generate Elementor structure from crawled data
+        $elementor_content = $this->generate_elementor_from_crawl($structure_info);
+        
+        // Create page
+        return $this->create_post(array(
+            'title' => $structure_info['title'] ?: 'Page from ' . parse_url($url, PHP_URL_HOST),
+            'content' => json_encode($elementor_content),
+            'post_type' => 'page',
+            'editor_type' => $editor_type,
+            'status' => 'draft',
+            'meta' => array(
+                '_wpai_source_url' => $url,
+            ),
+        ));
+    }
+    
+    /**
+     * Analyze image using Vision API
+     */
+    private function analyze_image($args) {
+        $image_url = esc_url_raw($args['image_url'] ?? '');
+        $create_page = isset($args['create_page']) ? (bool) $args['create_page'] : true;
+        
+        if (empty($image_url)) {
+            return new WP_Error('missing_image_url', __('Image URL is required', 'wpai-assistant'));
+        }
+        
+        // Download image temporarily
+        $tmp_file = download_url($image_url);
+        if (is_wp_error($tmp_file)) {
+            return $tmp_file;
+        }
+        
+        // Convert to base64 for Vision API
+        $image_data = file_get_contents($tmp_file);
+        $base64_image = base64_encode($image_data);
+        @unlink($tmp_file);
+        
+        // Use OpenAI Vision API or Google Vision
+        $api_key = get_option('wpai_api_key', '');
+        $provider = get_option('wpai_api_provider', 'openai');
+        
+        if ($provider === 'openai' && !empty($api_key)) {
+            $analysis = $this->analyze_image_openai($base64_image, $image_url);
+        } elseif ($provider === 'google') {
+            $analysis = $this->analyze_image_google($base64_image, $image_url);
+        } else {
+            // Fallback: try to get basic info
+            $analysis = array(
+                'description' => __('Image analysis requires API key. Please configure OpenAI or Google API.', 'wpai-assistant'),
+                'layout' => 'unknown',
+            );
+        }
+        
+        if (is_wp_error($analysis)) {
+            return $analysis;
+        }
+        
+        if (!$create_page) {
+            return array(
+                'success' => true,
+                'analysis' => $analysis,
+                'message' => __('Image analyzed. Use create_post with Elementor editor to create page.', 'wpai-assistant'),
+            );
+        }
+        
+        // Generate Elementor structure from image analysis
+        $elementor_content = $this->generate_elementor_from_image($analysis);
+        
+        // Create page
+        return $this->create_post(array(
+            'title' => $analysis['title'] ?? 'Page from Image',
+            'content' => json_encode($elementor_content),
+            'post_type' => 'page',
+            'editor_type' => 'elementor',
+            'status' => 'draft',
+            'featured_image_url' => $image_url,
+            'meta' => array(
+                '_wpai_source_image' => $image_url,
+            ),
+        ));
+    }
+    
+    /**
+     * Generate image using DALL-E
+     */
+    private function generate_image($args) {
+        $prompt = sanitize_text_field($args['prompt'] ?? '');
+        $size = sanitize_text_field($args['size'] ?? '1024x1024');
+        $download = isset($args['download']) ? (bool) $args['download'] : true;
+        
+        if (empty($prompt)) {
+            return new WP_Error('missing_prompt', __('Prompt is required', 'wpai-assistant'));
+        }
+        
+        $api_key = get_option('wpai_api_key', '');
+        $provider = get_option('wpai_api_provider', 'openai');
+        
+        if ($provider !== 'openai' || empty($api_key)) {
+            // Fallback to free image search
+            return $this->get_free_image(array(
+                'query' => $prompt,
+                'download' => $download,
+                'source' => 'unsplash',
+            ));
+        }
+        
+        // Use DALL-E API
+        $endpoint = 'https://api.openai.com/v1/images/generations';
+        $mirror_link = get_option('wpai_mirror_link', '');
+        if (!empty($mirror_link)) {
+            // If mirror link is for images, use it
+            $endpoint = rtrim($mirror_link, '/') . '/v1/images/generations';
+        }
+        
+        $body = array(
+            'prompt' => $prompt,
+            'n' => 1,
+            'size' => $size,
+            'response_format' => 'url',
+        );
+        
+        $response = wp_remote_post($endpoint, array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $api_key,
+                'Content-Type' => 'application/json',
+            ),
+            'body' => json_encode($body),
+            'timeout' => 60,
+        ));
+        
+        if (is_wp_error($response)) {
+            return $response;
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (isset($data['error'])) {
+            return new WP_Error('api_error', $data['error']['message'] ?? __('Image generation failed', 'wpai-assistant'));
+        }
+        
+        if (isset($data['data'][0]['url'])) {
+            $image_url = $data['data'][0]['url'];
+            
+            if ($download) {
+                $attachment_id = $this->download_image_to_media($image_url, sanitize_file_name($prompt));
+                if (!is_wp_error($attachment_id)) {
+                    return array(
+                        'success' => true,
+                        'url' => wp_get_attachment_url($attachment_id),
+                        'attachment_id' => $attachment_id,
+                        'source' => 'dalle',
+                        'prompt' => $prompt,
+                    );
+                }
+            }
+            
+            return array(
+                'success' => true,
+                'url' => $image_url,
+                'source' => 'dalle',
+                'prompt' => $prompt,
+            );
+        }
+        
+        return new WP_Error('no_image_generated', __('Failed to generate image', 'wpai-assistant'));
+    }
+    
+    /**
+     * Analyze image using OpenAI Vision API
+     */
+    private function analyze_image_openai($base64_image, $image_url) {
+        $api_key = get_option('wpai_api_key', '');
+        $endpoint = 'https://api.openai.com/v1/chat/completions';
+        $mirror_link = get_option('wpai_mirror_link', '');
+        if (!empty($mirror_link) && strpos($mirror_link, 'chat/completions') === false) {
+            $endpoint = rtrim($mirror_link, '/') . '/v1/chat/completions';
+        }
+        
+        $messages = array(
+            array(
+                'role' => 'user',
+                'content' => array(
+                    array(
+                        'type' => 'text',
+                        'text' => 'Analyze this image and describe: 1) The layout and structure (header, sections, footer), 2) Colors and design style, 3) Text content if any, 4) Overall purpose (landing page, product page, etc.). Format as JSON with keys: title, description, layout, colors, sections, purpose.',
+                    ),
+                    array(
+                        'type' => 'image_url',
+                        'image_url' => array(
+                            'url' => 'data:image/jpeg;base64,' . $base64_image,
+                        ),
+                    ),
+                ),
+            ),
+        );
+        
+        $body = array(
+            'model' => 'gpt-4-vision-preview',
+            'messages' => $messages,
+            'max_tokens' => 1000,
+        );
+        
+        $response = wp_remote_post($endpoint, array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $api_key,
+                'Content-Type' => 'application/json',
+            ),
+            'body' => json_encode($body),
+            'timeout' => 60,
+        ));
+        
+        if (is_wp_error($response)) {
+            return $response;
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (isset($data['error'])) {
+            return new WP_Error('api_error', $data['error']['message'] ?? __('Image analysis failed', 'wpai-assistant'));
+        }
+        
+        if (isset($data['choices'][0]['message']['content'])) {
+            $content = $data['choices'][0]['message']['content'];
+            $analysis = json_decode($content, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return $analysis;
+            }
+            // If not JSON, parse as text
+            return array(
+                'description' => $content,
+                'layout' => 'unknown',
+            );
+        }
+        
+        return new WP_Error('invalid_response', __('Invalid response from Vision API', 'wpai-assistant'));
+    }
+    
+    /**
+     * Analyze image using Google Vision API
+     */
+    private function analyze_image_google($base64_image, $image_url) {
+        $api_key = get_option('wpai_api_key', '');
+        $endpoint = 'https://vision.googleapis.com/v1/images:annotate?key=' . urlencode($api_key);
+        
+        $body = array(
+            'requests' => array(
+                array(
+                    'image' => array(
+                        'content' => $base64_image,
+                    ),
+                    'features' => array(
+                        array('type' => 'LABEL_DETECTION', 'maxResults' => 10),
+                        array('type' => 'TEXT_DETECTION'),
+                        array('type' => 'IMAGE_PROPERTIES'),
+                    ),
+                ),
+            ),
+        );
+        
+        $response = wp_remote_post($endpoint, array(
+            'headers' => array(
+                'Content-Type' => 'application/json',
+            ),
+            'body' => json_encode($body),
+            'timeout' => 60,
+        ));
+        
+        if (is_wp_error($response)) {
+            return $response;
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (isset($data['error'])) {
+            return new WP_Error('api_error', $data['error']['message'] ?? __('Image analysis failed', 'wpai-assistant'));
+        }
+        
+        // Parse Google Vision response
+        $analysis = array(
+            'description' => '',
+            'layout' => 'unknown',
+            'text' => '',
+        );
+        
+        if (isset($data['responses'][0])) {
+            $resp = $data['responses'][0];
+            if (isset($resp['textAnnotations'][0]['description'])) {
+                $analysis['text'] = $resp['textAnnotations'][0]['description'];
+            }
+            if (isset($resp['labelAnnotations'])) {
+                $labels = array();
+                foreach ($resp['labelAnnotations'] as $label) {
+                    $labels[] = $label['description'];
+                }
+                $analysis['description'] = implode(', ', $labels);
+            }
+        }
+        
+        return $analysis;
+    }
+    
+    /**
+     * Analyze HTML structure
+     */
+    private function analyze_html_structure($html) {
+        $structure = array(
+            'sections' => array(),
+            'has_header' => false,
+            'has_footer' => false,
+        );
+        
+        // Detect header
+        if (preg_match('/<header[^>]*>/i', $html) || preg_match('/<nav[^>]*>/i')) {
+            $structure['has_header'] = true;
+        }
+        
+        // Detect footer
+        if (preg_match('/<footer[^>]*>/i', $html)) {
+            $structure['has_footer'] = true;
+        }
+        
+        // Extract sections
+        if (preg_match_all('/<section[^>]*>(.*?)<\/section>/is', $html, $matches)) {
+            foreach ($matches[1] as $section_html) {
+                $structure['sections'][] = array(
+                    'content' => wp_strip_all_tags($section_html),
+                );
+            }
+        }
+        
+        return $structure;
+    }
+    
+    /**
+     * Generate Elementor structure from crawled data
+     */
+    private function generate_elementor_from_crawl($crawl_data) {
+        $sections = array();
+        
+        // Create header section if detected
+        if (!empty($crawl_data['html_structure']['has_header'])) {
+            $sections[] = $this->create_elementor_section('header', array(
+                'title' => $crawl_data['title'] ?? '',
+            ));
+        }
+        
+        // Create content sections
+        if (!empty($crawl_data['html_structure']['sections'])) {
+            foreach ($crawl_data['html_structure']['sections'] as $section) {
+                $sections[] = $this->create_elementor_section('content', $section);
+            }
+        } else {
+            // Create single content section
+            $sections[] = $this->create_elementor_section('content', array(
+                'content' => $crawl_data['content'] ?? '',
+            ));
+        }
+        
+        // Create footer section if detected
+        if (!empty($crawl_data['html_structure']['has_footer'])) {
+            $sections[] = $this->create_elementor_section('footer', array());
+        }
+        
+        return $sections;
+    }
+    
+    /**
+     * Generate Elementor structure from image analysis
+     */
+    private function generate_elementor_from_image($analysis) {
+        $sections = array();
+        
+        // Create hero section with image
+        $sections[] = $this->create_elementor_section('hero', array(
+            'title' => $analysis['title'] ?? 'Hero Section',
+            'description' => $analysis['description'] ?? '',
+        ));
+        
+        // Create content sections based on analysis
+        if (!empty($analysis['sections'])) {
+            foreach ($analysis['sections'] as $section) {
+                $sections[] = $this->create_elementor_section('content', $section);
+            }
+        }
+        
+        return $sections;
+    }
+    
+    /**
+     * Create Elementor section structure
+     * Improved to support complex landing page layouts
+     */
+    private function create_elementor_section($type, $data) {
+        $section_id = wp_generate_uuid4();
+        $column_id = wp_generate_uuid4();
+        
+        $section_settings = array(
+            'layout' => 'boxed',
+        );
+        
+        $widgets = array();
+        
+        switch ($type) {
+            case 'header':
+                $section_settings['background_background'] = 'classic';
+                $widgets[] = array(
+                    'id' => wp_generate_uuid4(),
+                    'elType' => 'widget',
+                    'widgetType' => 'heading',
+                    'settings' => array(
+                        'title' => $data['title'] ?? 'Header',
+                        'size' => 'h1',
+                        'align' => 'center',
+                    ),
+                );
+                break;
+                
+            case 'hero':
+                $section_settings['background_background'] = 'classic';
+                $section_settings['background_color'] = '#f5f5f5';
+                
+                // Hero heading
+                if (!empty($data['title'])) {
+                    $widgets[] = array(
+                        'id' => wp_generate_uuid4(),
+                        'elType' => 'widget',
+                        'widgetType' => 'heading',
+                        'settings' => array(
+                            'title' => $data['title'],
+                            'size' => 'h1',
+                            'align' => 'center',
+                        ),
+                    );
+                }
+                
+                // Hero description
+                if (!empty($data['description'])) {
+                    $widgets[] = array(
+                        'id' => wp_generate_uuid4(),
+                        'elType' => 'widget',
+                        'widgetType' => 'text-editor',
+                        'settings' => array(
+                            'editor' => wp_kses_post($data['description']),
+                            'align' => 'center',
+                        ),
+                    );
+                }
+                
+                // Hero image if provided
+                if (!empty($data['image_url'])) {
+                    $widgets[] = array(
+                        'id' => wp_generate_uuid4(),
+                        'elType' => 'widget',
+                        'widgetType' => 'image',
+                        'settings' => array(
+                            'image' => array(
+                                'url' => $data['image_url'],
+                            ),
+                            'align' => 'center',
+                        ),
+                    );
+                }
+                break;
+                
+            case 'content':
+                $level = isset($data['level']) ? min(max(1, intval($data['level'])), 6) : 2;
+                $heading_size = 'h' . $level;
+                
+                // Add heading if title provided
+                if (!empty($data['title'])) {
+                    $widgets[] = array(
+                        'id' => wp_generate_uuid4(),
+                        'elType' => 'widget',
+                        'widgetType' => 'heading',
+                        'settings' => array(
+                            'title' => $data['title'],
+                            'size' => $heading_size,
+                        ),
+                    );
+                }
+                
+                // Add content
+                if (!empty($data['content'])) {
+                    $widgets[] = array(
+                        'id' => wp_generate_uuid4(),
+                        'elType' => 'widget',
+                        'widgetType' => 'text-editor',
+                        'settings' => array(
+                            'editor' => wp_kses_post($data['content']),
+                        ),
+                    );
+                }
+                break;
+                
+            case 'footer':
+                $section_settings['background_background'] = 'classic';
+                $section_settings['background_color'] = '#333333';
+                $widgets[] = array(
+                    'id' => wp_generate_uuid4(),
+                    'elType' => 'widget',
+                    'widgetType' => 'text-editor',
+                    'settings' => array(
+                        'editor' => '<p style="text-align: center; color: #ffffff;">© ' . date('Y') . ' All rights reserved.</p>',
+                        'align' => 'center',
+                    ),
+                );
+                break;
+        }
+        
+        // If no widgets, add default text editor
+        if (empty($widgets)) {
+            $widgets[] = array(
+                'id' => wp_generate_uuid4(),
+                'elType' => 'widget',
+                'widgetType' => 'text-editor',
+                'settings' => array(
+                    'editor' => '',
+                ),
+            );
+        }
+        
+        return array(
+            'id' => $section_id,
+            'elType' => 'section',
+            'settings' => $section_settings,
+            'elements' => array(
+                array(
+                    'id' => $column_id,
+                    'elType' => 'column',
+                    'settings' => array(
+                        '_column_size' => 100,
+                    ),
+                    'elements' => $widgets,
+                ),
+            ),
         );
     }
 }
